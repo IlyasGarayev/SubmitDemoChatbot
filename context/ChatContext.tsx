@@ -31,6 +31,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize
   useEffect(() => {
+    console.log("Initializing ChatContext...");
+    console.log("Saved threads:", localStorage.getItem('threads'));
+    console.log("Saved language:", localStorage.getItem('language'));
+    console.log("Current thread ID:", currentThreadId);
+
     // Load threads from local storage
     const savedThreads = localStorage.getItem('threads');
     if (savedThreads) {
@@ -44,6 +49,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // If no threads, create one
     if (!savedThreads || JSON.parse(savedThreads).length === 0) {
+      console.log("No threads found. Creating a new thread...");
       const newId = uuidv4();
       const initialThread: Thread = { id: newId, title: 'Yeni Söhbət', lastModified: Date.now() };
       setThreads([initialThread]);
@@ -119,6 +125,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sendMessage = async (content: string) => {
     if (!content.trim()) return;
 
+    console.log("Sending message:", content);
+    console.log("Current thread ID:", currentThreadId);
+
     const userMsgId = uuidv4();
     const newUserMsg: Message = {
       id: userMsgId,
@@ -133,22 +142,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const data = await chatService.sendMessage(content, currentThreadId);
-      
+      console.log("Response from backend:", data);
+
       const newAiMsg: Message = {
-        id: uuidv4(), // API doesn't return ID for response immediately usually, but we need one for React key
+        id: uuidv4(),
         type: MessageType.AI,
         content: data.response,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, newAiMsg]);
-      
+
       // Update thread title if it's the first user message
       updateThreadTitleIfNeeded(content);
 
     } catch (err) {
+      console.error("Error sending message:", err);
       setError("Failed to send message. Please check your connection.");
-      // Remove the optimistic message if failed? Or keep it with error state.
-      // Keeping it simple for now.
     } finally {
       setIsLoading(false);
     }

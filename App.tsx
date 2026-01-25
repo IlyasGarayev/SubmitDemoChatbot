@@ -30,6 +30,8 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  console.log("App component is rendering...");
+  
   return (
     <ThemeProvider>
       <AuthProvider>
