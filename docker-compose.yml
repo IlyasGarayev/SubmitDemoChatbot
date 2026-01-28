@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+
+  backend:
+    image: your-backend-image-name
+    build:
+      context: ../path-to-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=your-database-url
+      - OTHER_ENV_VARIABLES=values
+    volumes:
+      - ../path-to-backend:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
