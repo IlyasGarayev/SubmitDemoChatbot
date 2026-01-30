@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   frontend:
     build:
@@ -18,7 +16,7 @@ services:
   backend:
     image: your-backend-image-name
     build:
-      context: ../path-to-backend
+      context: ../backend-path # Update this path to the correct backend directory
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
@@ -26,7 +24,7 @@ services:
       - DATABASE_URL=your-database-url
       - OTHER_ENV_VARIABLES=values
     volumes:
-      - ../path-to-backend:/app
+      - ../backend-path:/app # Update this path to the correct backend directory
       - /app/node_modules
     stdin_open: true
     tty: true
