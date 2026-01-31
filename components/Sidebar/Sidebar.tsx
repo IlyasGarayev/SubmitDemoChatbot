@@ -1,18 +1,80 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useChat } from '../../context/ChatContext';
 import { Plus, MessageSquare, Trash2, X, GraduationCap } from 'lucide-react';
 import UserProfile from './UserProfile';
+import { chatService } from '../../services/chatService';
 
 interface SidebarProps {
   onCloseMobile: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
-  const { threads, currentThreadId, createNewThread, selectThread, deleteThread } = useChat();
+  const { threads, currentThreadId, createNewThread, selectThread, deleteThread, updateThreads, backendAvailable } = useChat();
+  const [loading, setLoading] = useState(false);
+  const [sessionsFetched, setSessionsFetched] = useState(false);
 
-  const handleNewChat = () => {
-    createNewThread();
-    onCloseMobile();
+  useEffect(() => {
+    if (!backendAvailable || sessionsFetched) return; // Don't try to fetch if backend is not available or already fetched
+
+    const fetchSessions = async () => {
+      setLoading(true);
+      try {
+        const sessions = await chatService.getChatSessions();
+        if (sessions.length === 0) {
+          await createNewThread();
+        } else {
+          const sortedSessions = sessions.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+          updateThreads(sortedSessions.map((s) => ({
+            id: s.id,
+            title: s.title,
+            lastModified: new Date(s.updated_at).getTime(),
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat sessions:', error);
+      } finally {
+        setLoading(false);
+        setSessionsFetched(true);
+      }
+    };
+
+    fetchSessions();
+  }, [backendAvailable]);
+
+  const handleNewChat = async () => {
+    if (!backendAvailable) {
+      createNewThread();
+      onCloseMobile();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const newSession = await chatService.createChatSession();
+      createNewThread();
+      onCloseMobile();
+    } catch (error) {
+      console.error('Failed to create new chat session:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!backendAvailable) {
+      deleteThread(id);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await chatService.deleteChatSession(id);
+      deleteThread(id);
+    } catch (error) {
+      console.error('Failed to delete chat session:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSelect = (id: string) => {
@@ -74,7 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                deleteThread(thread.id);
+                handleDelete(thread.id);
               }}
               className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md text-slate-400 hover:text-red-500 transition-all"
               title="Delete chat"

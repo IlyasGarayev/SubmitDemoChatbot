@@ -17,6 +17,9 @@ interface ChatContextType {
   selectThread: (threadId: string) => void;
   deleteThread: (threadId: string) => void;
   error: string | null;
+  backendAvailable: boolean;
+  fetchOlderMessages: (beforeId: string) => Promise<void>;
+  updateThreads: (newThreads: Thread[]) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -28,15 +31,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(false);
   const [language, setLanguageState] = useState<Language>('az');
   const [error, setError] = useState<string | null>(null);
+  const [backendAvailable, setBackendAvailable] = useState<boolean>(false);
+  const [backendCheckCompleted, setBackendCheckCompleted] = useState<boolean>(false);
+
+  // Check backend health first
+  useEffect(() => {
+    const checkBackendHealth = async () => {
+      try {
+        const health = await chatService.checkHealth();
+        console.log('Backend is available:', health.status);
+        setBackendAvailable(true);
+      } catch (error) {
+        console.error('Backend is not reachable:', error);
+        setBackendAvailable(false);
+      } finally {
+        setBackendCheckCompleted(true);
+      }
+    };
+
+    checkBackendHealth();
+  }, []);
 
   // Initialize
   useEffect(() => {
+    if (!backendCheckCompleted) return;
+
     console.log("Initializing ChatContext...");
     console.log("Saved threads:", localStorage.getItem('threads'));
     console.log("Saved language:", localStorage.getItem('language'));
     console.log("Current thread ID:", currentThreadId);
 
-    // Load threads from local storage
     const savedThreads = localStorage.getItem('threads');
     if (savedThreads) {
       setThreads(JSON.parse(savedThreads));
@@ -47,14 +71,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLanguageState(savedLang as Language);
     }
 
-    // If no threads, create one
     if (!savedThreads || JSON.parse(savedThreads).length === 0) {
       console.log("No threads found. Creating a new thread...");
       const newId = uuidv4();
       const initialThread: Thread = { id: newId, title: 'Yeni Söhbət', lastModified: Date.now() };
       setThreads([initialThread]);
       setCurrentThreadId(newId);
-      // Initialize with greeting
       setMessages([{
         id: uuidv4(),
         type: MessageType.AI,
@@ -65,7 +87,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const parsedThreads = JSON.parse(savedThreads);
       setCurrentThreadId(parsedThreads[0].id);
     }
-  }, []);
+  }, [backendCheckCompleted]);
 
   // Save threads when changed
   useEffect(() => {
@@ -78,52 +100,88 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('language', lang);
   };
 
-  // Load history when thread changes
+  // Load history when thread changes (only if backend is available)
   useEffect(() => {
-    if (!currentThreadId) return;
+    if (!currentThreadId || !backendAvailable) {
+      if (!backendAvailable && currentThreadId) {
+        setMessages([
+          {
+            id: uuidv4(),
+            type: MessageType.AI,
+            content: INITIAL_GREETING[language],
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+      return;
+    }
+
+    let isMounted = true;
 
     const loadHistory = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // Attempt to fetch from API
         const data = await chatService.getHistory(currentThreadId);
-        
-        const mappedMessages: Message[] = data.messages.map(m => ({
-          ...m,
-          timestamp: Date.now() // API doesn't return timestamp, mock it for sorting if needed
-        }));
 
-        if (mappedMessages.length === 0) {
-           setMessages([{
+        if (isMounted) {
+          const mappedMessages: Message[] = data.messages.map((m) => ({
             id: uuidv4(),
-            type: MessageType.AI,
-            content: INITIAL_GREETING[language],
-            timestamp: Date.now()
-          }]);
-        } else {
-          setMessages(mappedMessages);
+            type: m.type,
+            content: m.content,
+            timestamp: m.timestamp || Date.now(),
+            messageId: m.message_id || null,
+            responseId: m.response_id || null,
+          }));
+
+          if (mappedMessages.length === 0) {
+            setMessages([
+              {
+                id: uuidv4(),
+                type: MessageType.AI,
+                content: INITIAL_GREETING[language],
+                timestamp: Date.now(),
+                messageId: null,
+                responseId: null,
+              },
+            ]);
+          } else {
+            setMessages(mappedMessages);
+          }
         }
-
       } catch (err) {
-        console.warn("Could not fetch history (backend might be offline), checking local storage backup or initializing new");
-        // Fallback for demo/offline purposes
-        setMessages([{
-            id: uuidv4(),
-            type: MessageType.AI,
-            content: INITIAL_GREETING[language],
-            timestamp: Date.now()
-        }]);
+        console.warn("Could not fetch history from backend");
+        if (isMounted) {
+          setMessages([
+            {
+              id: uuidv4(),
+              type: MessageType.AI,
+              content: INITIAL_GREETING[language],
+              timestamp: Date.now(),
+            },
+          ]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadHistory();
-  }, [currentThreadId, language]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentThreadId, language, backendAvailable]);
 
   const sendMessage = async (content: string) => {
     if (!content.trim()) return;
+
+    if (!backendAvailable) {
+      setError('Backend is currently unavailable. Please try again later.');
+      return;
+    }
 
     console.log("Sending message:", content);
     console.log("Current thread ID:", currentThreadId);
@@ -133,7 +191,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: userMsgId,
       type: MessageType.Human,
       content: content,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      messageId: null,
+      responseId: null
     };
 
     setMessages(prev => [...prev, newUserMsg]);
@@ -144,15 +204,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await chatService.sendMessage(content, currentThreadId);
       console.log("Response from backend:", data);
 
+      if (!data.message_id || !data.response_id || !data.response) {
+        throw new Error("Incomplete response from backend: " + JSON.stringify(data));
+      }
+
+      setMessages(prev => prev.map(msg => 
+        msg.id === userMsgId ? { ...msg, messageId: data.message_id } : msg
+      ));
+
       const newAiMsg: Message = {
         id: uuidv4(),
         type: MessageType.AI,
         content: data.response,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        messageId: data.response_id,
+        responseId: null
       };
       setMessages(prev => [...prev, newAiMsg]);
 
-      // Update thread title if it's the first user message
       updateThreadTitleIfNeeded(content);
 
     } catch (err) {
@@ -164,43 +233,49 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const editMessage = async (messageId: string, newContent: string) => {
+    if (!backendAvailable) {
+      setError('Backend is currently unavailable. Please try again later.');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      // Find the index of the message being edited
-      const msgIndex = messages.findIndex(m => m.id === messageId);
+      console.log("Editing message:", { messageId, newContent, threadId: currentThreadId });
+
+      const msgIndex = messages.findIndex(m => m.messageId === messageId);
       if (msgIndex === -1) throw new Error("Message not found");
 
-      // Optimistic update:
-      // 1. Slice history up to the edited message
-      // 2. Update the edited message content
       const historyUntilEdit = messages.slice(0, msgIndex);
       const updatedUserMsg = { ...messages[msgIndex], content: newContent };
-      
-      // Temporary state while fetching
+
       setMessages([...historyUntilEdit, updatedUserMsg]);
 
       const data = await chatService.editMessage(currentThreadId, messageId, newContent);
+
+      console.log("Edit response from backend:", data);
 
       const newAiMsg: Message = {
         id: uuidv4(),
         type: MessageType.AI,
         content: data.response,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        messageId: data.response_id,
+        responseId: null
       };
 
       setMessages([...historyUntilEdit, updatedUserMsg, newAiMsg]);
 
     } catch (err) {
+      console.error("Error editing message:", err);
       setError("Failed to edit message.");
-      // Revert logic could go here
     } finally {
       setIsLoading(false);
     }
   };
 
-  const createNewThread = () => {
+  const createNewThread = useCallback(() => {
     const newId = uuidv4();
     const newThread: Thread = {
       id: newId,
@@ -209,30 +284,80 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     setThreads(prev => [newThread, ...prev]);
     setCurrentThreadId(newId);
-  };
+  }, []);
 
-  const selectThread = (threadId: string) => {
+  const selectThread = useCallback((threadId: string) => {
     setCurrentThreadId(threadId);
-  };
+  }, []);
 
-  const deleteThread = (threadId: string) => {
-    const newThreads = threads.filter(t => t.id !== threadId);
-    setThreads(newThreads);
-    if (currentThreadId === threadId && newThreads.length > 0) {
-      setCurrentThreadId(newThreads[0].id);
-    } else if (newThreads.length === 0) {
-      createNewThread();
-    }
-  };
+  const deleteThread = useCallback((threadId: string) => {
+    setThreads((threads) => {
+      const newThreads = threads.filter(t => t.id !== threadId);
+      if (currentThreadId === threadId && newThreads.length > 0) {
+        setCurrentThreadId(newThreads[0].id);
+      } else if (newThreads.length === 0 && threadId === currentThreadId) {
+        // Create a new thread if we deleted the current one and have no others
+        const newId = uuidv4();
+        const initialThread: Thread = { id: newId, title: 'Yeni Söhbət', lastModified: Date.now() };
+        setCurrentThreadId(newId);
+        return [initialThread];
+      }
+      return newThreads;
+    });
+  }, [currentThreadId]);
 
-  const updateThreadTitleIfNeeded = (content: string) => {
+  const updateThreadTitleIfNeeded = useCallback((content: string) => {
     setThreads(prev => prev.map(t => {
       if (t.id === currentThreadId && t.title === 'Yeni Söhbət') {
         return { ...t, title: content.slice(0, 30) + (content.length > 30 ? '...' : '') };
       }
       return t;
     }));
+  }, [currentThreadId]);
+
+  const fetchOlderMessages = useCallback(async (beforeId: string) => {
+    if (!currentThreadId || !backendAvailable) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const data = await chatService.getChatHistory(currentThreadId, 20, beforeId);
+
+      const olderMessages: Message[] = data.messages.map((m) => ({
+        id: uuidv4(),
+        type: m.type,
+        content: m.content,
+        timestamp: m.timestamp || Date.now(),
+        messageId: m.message_id || null,
+        responseId: m.response_id || null,
+      }));
+
+      setMessages((prev) => [...olderMessages, ...prev]);
+    } catch (err) {
+      console.error('Error fetching older messages:', err);
+      setError('Failed to load older messages.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentThreadId, backendAvailable]);
+
+  const updateThreads = useCallback((newThreads: Thread[]) => {
+    setThreads(newThreads);
+    if (newThreads.length > 0 && !currentThreadId) {
+      setCurrentThreadId(newThreads[0].id);
+    }
+  }, [currentThreadId]);
+
+  const replaceMessagesAfterEdit = (messageId: string, newMessages: Message[]) => {
+    const msgIndex = messages.findIndex((m) => m.messageId === messageId);
+    if (msgIndex === -1) return;
+
+    const historyUntilEdit = messages.slice(0, msgIndex + 1);
+    setMessages([...historyUntilEdit, ...newMessages]);
   };
+
+
 
   return (
     <ChatContext.Provider value={{
@@ -247,7 +372,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createNewThread,
       selectThread,
       deleteThread,
-      error
+      error,
+      backendAvailable,
+      fetchOlderMessages,
+      updateThreads
     }}>
       {children}
     </ChatContext.Provider>

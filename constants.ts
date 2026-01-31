@@ -1,4 +1,4 @@
-export const API_BASE_URL = 'https://submitchatagent-91281591862.europe-west1.run.app/api/v1';
+export const API_BASE_URL = 'http://localhost:8000/api/v1';
 
 export const INITIAL_GREETING = {
   az: "Salam! Mən sizə xaricdə təhsil imkanları barədə kömək edə bilərəm. Hansı ölkə və ya sahə ilə maraqlanırsınız?",

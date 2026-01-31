@@ -13,9 +13,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
 
-  const handleEditSave = () => {
+  const handleEditSave = async () => {
     if (editContent.trim() !== message.content) {
-      editMessage(message.id, editContent);
+      if (message.messageId) {
+        try {
+          await editMessage(message.messageId, editContent);
+        } catch (error) {
+          console.error('Failed to edit message:', error);
+        }
+      } else {
+        console.error("Message ID is missing for the message being edited:", message);
+      }
     }
     setIsEditing(false);
   };

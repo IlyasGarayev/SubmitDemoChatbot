@@ -1,17 +1,43 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Send, AlertCircle, Loader2 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import MessageBubble from './MessageBubble';
 
 const ChatInterface: React.FC = () => {
-  const { messages, isLoading, sendMessage, error } = useChat();
+  const { messages, isLoading, sendMessage, error, fetchOlderMessages } = useChat();
   const [input, setInput] = useState('');
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScrollWithCleanup = async () => {
+      if (container.scrollTop === 0 && !loadingOlderMessages) {
+        const firstMessageId = messages[0]?.id;
+        if (firstMessageId) {
+          setLoadingOlderMessages(true);
+          try {
+            await fetchOlderMessages(firstMessageId);
+          } catch (error) {
+            console.error('Failed to fetch older messages:', error);
+          } finally {
+            setLoadingOlderMessages(false);
+          }
+        }
+      }
+    };
+
+    container.addEventListener('scroll', handleScrollWithCleanup);
+    return () => container.removeEventListener('scroll', handleScrollWithCleanup);
+  }, [messages, loadingOlderMessages, fetchOlderMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -44,7 +70,10 @@ const ChatInterface: React.FC = () => {
   return (
     <div className="flex flex-col h-full relative">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-4 lg:px-20 py-8 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto px-4 lg:px-20 py-8 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700"
+      >
         <div className="max-w-4xl mx-auto">
             {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />

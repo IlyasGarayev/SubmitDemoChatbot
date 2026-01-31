@@ -18,6 +18,8 @@ export interface Message {
   type: MessageType;
   content: string;
   timestamp: number;
+  messageId?: string; // Added to store backend message_id
+  responseId?: string; // Added to store backend response_id
 }
 
 export interface Thread {
@@ -30,6 +32,8 @@ export interface Thread {
 export interface SendMessageResponse {
   response: string;
   thread_id: string;
+  message_id: string; // Added to match backend response
+  response_id: string; // Added to match backend response
 }
 
 export interface GetHistoryResponse {
@@ -38,6 +42,9 @@ export interface GetHistoryResponse {
     id: string;
     type: MessageType;
     content: string;
+    timestamp: number; // Added to match backend response
+    message_id: string; // Added to match backend response
+    response_id: string; // Added to match backend response
   }[];
 }
 
@@ -50,4 +57,5 @@ export interface EditMessageRequest {
 export interface EditMessageResponse {
   response: string;
   thread_id: string;
+  response_id: string; // Added to match backend response
 }

@@ -12,11 +12,21 @@ class ChatService {
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        headers: {
-          ...this.getHeaders(),
-          ...options.headers,
-        },
+      const url = `${API_BASE_URL}${endpoint}`;
+      const headers = {
+        ...this.getHeaders(),
+        ...options.headers,
+      };
+
+      console.log("Making API request:", {
+        url,
+        method: options.method || 'GET',
+        headers,
+        body: options.body ? JSON.parse(options.body.toString()) : null,
+      });
+
+      const response = await fetch(url, {
+        headers,
         ...options,
       });
 
@@ -27,6 +37,11 @@ class ChatService {
           window.location.href = '/'; // Simple redirect to login logic
         }
         throw new Error(`API Error: ${response.statusText}`);
+      }
+
+      // Handle 204 No Content - no body to parse
+      if (response.status === 204) {
+        return null as unknown as T;
       }
 
       return await response.json();
@@ -62,6 +77,33 @@ class ChatService {
 
   async checkHealth(): Promise<{ status: string }> {
     return this.request<{ status: string }>('/chat/health');
+  }
+
+  async getChatSessions(): Promise<{ id: string; title: string; updated_at: string }[]> {
+    return this.request<{ id: string; title: string; updated_at: string }[]>('/chat/sessions', {
+      method: 'GET',
+    });
+  }
+
+  async createChatSession(): Promise<{ thread_id: string; title: string }> {
+    return this.request<{ thread_id: string; title: string }>('/chat/sessions', {
+      method: 'POST',
+    });
+  }
+
+  async deleteChatSession(id: string): Promise<void> {
+    await this.request<void>(`/chat/sessions/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getChatHistory(threadId: string, limit: number, beforeId?: string): Promise<GetHistoryResponse> {
+    const queryParams = new URLSearchParams({ limit: limit.toString() });
+    if (beforeId) queryParams.append('before_id', beforeId);
+
+    return this.request<GetHistoryResponse>(`/chat/history/${threadId}?${queryParams.toString()}`, {
+      method: 'GET',
+    });
   }
 }
 
