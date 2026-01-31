@@ -126,7 +126,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (isMounted) {
           const mappedMessages: Message[] = data.messages.map((m) => ({
-            id: uuidv4(),
+            id: m.message_id || uuidv4(),
             type: m.type,
             content: m.content,
             timestamp: m.timestamp || Date.now(),
@@ -325,7 +325,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await chatService.getChatHistory(currentThreadId, 20, beforeId);
 
       const olderMessages: Message[] = data.messages.map((m) => ({
-        id: uuidv4(),
+        id: m.message_id || uuidv4(),
         type: m.type,
         content: m.content,
         timestamp: m.timestamp || Date.now(),
@@ -333,7 +333,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         responseId: m.response_id || null,
       }));
 
-      setMessages((prev) => [...olderMessages, ...prev]);
+      setMessages((prev) => {
+        // Create a Set of existing message IDs for efficient lookup
+        const existingIds = new Set(prev.map(m => m.id));
+        
+        // Filter out any older messages that are already in the state
+        const newMessages = olderMessages.filter(m => !existingIds.has(m.id));
+        
+        // Merge and sort by timestamp to ensure correct order
+        return [...newMessages, ...prev].sort((a, b) => 
+          (a.timestamp || 0) - (b.timestamp || 0)
+        );
+      });
     } catch (err) {
       console.error('Error fetching older messages:', err);
       setError('Failed to load older messages.');
